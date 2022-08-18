@@ -1,0 +1,10 @@
+<!doctype html>
+
+<h1>Flickr Image Labeling Tool</h1>
+<form method="post" action="{{ url_for('new_search') }}">
+    <input type="text" name="search_text" value="{{ search_text or '' }}" placeholder="{{ search_text or '' }}">
+    <button type="submit">search</button>
+</form>
+{% if curr_img %}
+    <img src="{{ url_for('get_image', filepath=images_path + '/' + curr_img) }}" />
+{% endif %}

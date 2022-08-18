@@ -1,12 +1,27 @@
+import os
+from re import L
 from google.cloud import storage
 from google.oauth2 import service_account
 
 from util.yaml_parse import load_yaml
 
 
-class GCSFileUploader:
+class FileMirror:
+    def __init__(self, upload_prefix: str):
+        self._upload_prefix = upload_prefix
+
+    def upload_data(self, data: bytes, upload_path: str):
+        raise NotImplementedError
+
+    def set_upload_path(self, upload_prefix: str):
+        self._upload_prefix = upload_prefix
+
+
+
+class GCSFileUploader(FileMirror):
 
     def __init__(self, project_name: str, bucket_name: str, auth_json_path: str = "", upload_prefix: str = "") -> None:
+        super().__init__(upload_prefix=upload_prefix)
         self._project_name = project_name
         self._bucket_name = bucket_name
         self._upload_prefix = upload_prefix
@@ -35,3 +50,10 @@ class GCSFileUploader:
             auth_json_path=secret_file.get("gcp_auth_json"),
             upload_prefix=secret_file.get("gcs_upload_prefix"),
         )
+
+
+class LocalFileStore(FileMirror):
+    def upload_data(self, data: bytes, upload_path: str):
+        with open(os.path.join(self._upload_prefix, upload_path), 'wb+') as f:
+            f.write(data)
+            return upload_path

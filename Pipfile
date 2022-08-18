@@ -12,6 +12,7 @@ google-resumable-media = "*"
 google-auth = "*"
 opencv-python = "*"
 pillow = "*"
+pandas = "*"
 
 [dev-packages]
 

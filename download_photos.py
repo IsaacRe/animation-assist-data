@@ -1,7 +1,7 @@
 from argparse import ArgumentParser, Namespace
 
 from flickr import ImageDownloader
-from gcs import GCSFileUploader
+from mirror import GCSFileUploader
 
 
 def parse_args() -> Namespace:
@@ -22,7 +22,7 @@ def main():
     image_dl = ImageDownloader(secret_file=args.flickr_secret_file, file_mirror=gcs_mirror)
 
     images = image_dl.search_photos(search_text=args.search_text)
-    image_dl.download_photo(images[0])
+    image_dl.download_and_save_photo(images[0])
 
 
 if __name__ == "__main__":
