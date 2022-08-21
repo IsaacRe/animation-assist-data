@@ -52,6 +52,8 @@ class ImageLabelWriter:
     def close(self):
         self._labels_file_handle.close()
         self._labels_file_handle = None
+        self._ids_file_handle.close()
+        self._ids_file_handle = None
 
     def flush(self):
         self._labels_file_handle.flush()
@@ -61,11 +63,12 @@ class ImageLabelWriter:
         return int(flickr_id) in self._labeled_image_ids
 
     def label_image(self, flickr_id: str, image_path: str, label: int) -> bool:
-        if self.check_image_labeled():
+        if self.check_image_labeled(flickr_id=flickr_id):
             return False
         self._labeled_image_ids.add(int(flickr_id))
         self._labels_file_handle.write(f"{flickr_id},{image_path},{label}\n")
         self._ids_file_handle.write(f"{flickr_id}\n")
+        self.flush()
         return True
 
 
@@ -90,23 +93,32 @@ class LabelImagesController:
         self._image_buffer = []
         self.curr_image_path = None
         self.curr_image_id = None
+        self._session_up = False
+        self.loading = False
 
     def end_session(self):
-        self._image_buffer = []
-        # TODO cleanup
+        if self._session_up:
+            self._image_buffer = []
+            self._label_writer.close()
+            self._image_downloader.end_session()
+            self._session_up = False
 
     def new_session(self, search_text: str):
+        self.end_session()
         self.search_text = search_text
         self._session_download_path = os.path.join(self._base_download_path, search_text.replace(" ", "_"))
         self.session_images_path = os.path.join(self._session_download_path, IMAGES_SUBDIR)
         os.makedirs(self._session_download_path, exist_ok=True)
         self._label_writer = ImageLabelWriter(save_path=self._session_download_path)
+        self._label_writer.open()
         self._image_downloader.new_session(download_path=self._session_download_path)
         self._images_iter = self._image_downloader.iter_photos(
             search_text=search_text,
             per_page=self._per_page,
         )
         self.buffer()
+        self._session_up = True
+        self.next_image()
 
     def buffer(self):
         while len(self._image_buffer) < self._download_buffer_size:
@@ -125,3 +137,4 @@ class LabelImagesController:
             image_path=self.curr_image_path,
             label=label,
         )
+        self.next_image()

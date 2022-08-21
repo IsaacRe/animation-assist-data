@@ -1,10 +1,31 @@
 <!doctype html>
 
+<script src="//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+<script type=text/javascript>
+        $(function() {
+          $('button.label').on('click', function(e) {
+            e.preventDefault()
+            let url = '/label-image?label=' + $(this).attr('label')
+            $.post(url,
+                function(data) {
+              //do nothing
+            });
+            location.reload()
+            return false;
+          });
+        });
+</script>
+
 <h1>Flickr Image Labeling Tool</h1>
 <form method="post" action="{{ url_for('new_search') }}">
     <input type="text" name="search_text" value="{{ search_text or '' }}" placeholder="{{ search_text or '' }}">
     <button type="submit">search</button>
 </form>
+<form method="post", action="{{ url_for('label_images_view') }}">
+    <button type="submit" class="label" label="0">0</button>
+    <button type="submit" class="label" label="1">1</button>
+</form>
 {% if curr_img %}
-    <img src="{{ url_for('get_image', filepath=images_path + '/' + curr_img) }}" />
+    {{ curr_img }}
+    <img src="{{ url_for('get_image', filepath=images_path + '/' + curr_img) }}" style="height:500px;"/>
 {% endif %}

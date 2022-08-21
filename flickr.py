@@ -24,6 +24,10 @@ class ImageDownloader:
         self._search_metadata_file = None
         self._previous_search_metadata = None
 
+    def end_session(self):
+        self._search_metadata_file = None
+        self._previous_search_metadata = None
+
     def new_session(self, download_path: str):
         self._search_metadata_file = os.path.join(download_path, SEARCH_METADATA_FILENAME)
         mirror_path = os.path.join(download_path, IMAGES_SUBDIR)
@@ -84,7 +88,7 @@ class ImageDownloader:
 
     @staticmethod
     def _make_filename(photo_id: str, size_label: str, file_format: str = "jpg"):
-        return f"{photo_id}_{size_label}.{file_format}"
+        return f"{photo_id}_{size_label.replace(' ', '_')}.{file_format}"
 
     def download_photo(self, photo_id: str):
         link, size = self._get_download_link(photo_id=photo_id)
