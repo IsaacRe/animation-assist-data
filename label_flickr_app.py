@@ -1,24 +1,41 @@
 import os
 from flask import Flask, render_template, redirect, request, url_for, send_from_directory
+from concurrent.futures import ThreadPoolExecutor
 
 from flickr import ImageDownloader
 from label import LabelImagesController, ImageLabelWriter
 from mirror import GCSFileUploader, LocalFileStore
+from util.yaml_parse import load_yaml
 
 DOWNLOAD_PATH = "data"
 FLICKR_SECRET_FILE = "secrets/flickr.yaml"
 GCS_SECRET_FILE = "secrets/gcloud.yaml"
 
 app = Flask(__name__)
+secret_file = load_yaml(file_path=GCS_SECRET_FILE)
+thread_executor = ThreadPoolExecutor(max_workers=4)
 file_store = LocalFileStore(DOWNLOAD_PATH)
-image_uploader = GCSFileUploader.from_secret_file(GCS_SECRET_FILE)
-label_uploader = GCSFileUploader.from_secret_file(GCS_SECRET_FILE)
+image_uploader = GCSFileUploader(
+    project_name=secret_file.get("gcp_project"),
+    bucket_name=secret_file.get("gcs_upload_bucket"),
+    auth_json_path=secret_file.get("gcp_auth_json"),
+    upload_prefix=secret_file.get("gcs_upload_prefix"),
+    executor=thread_executor,
+)
+label_uploader = GCSFileUploader(
+    project_name=secret_file.get("gcp_project"),
+    bucket_name=secret_file.get("gcs_upload_bucket"),
+    auth_json_path=secret_file.get("gcp_auth_json"),
+    upload_prefix=secret_file.get("gcs_upload_prefix"),
+    executor=thread_executor,
+)
 flickr_downloader = ImageDownloader(secret_file=FLICKR_SECRET_FILE, temp_file_mirror=file_store, file_mirror=image_uploader)
 label_writer = ImageLabelWriter(DOWNLOAD_PATH, backup_file_mirror=label_uploader)
 controller = LabelImagesController(
     download_path=DOWNLOAD_PATH,
     image_downloader=flickr_downloader,
     label_writer=label_writer,
+    executor=thread_executor,
 )
 
 

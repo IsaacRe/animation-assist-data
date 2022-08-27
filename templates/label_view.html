@@ -26,6 +26,7 @@
     <button type="submit" class="label" label="1">1</button>
 </form>
 {% if curr_img %}
-    {{ curr_img }}
+    Current Image: {{ curr_img }}
+    Loading? {{ loading }}
     <img src="{{ url_for('get_image', filepath=curr_img) }}" style="height:500px;"/>
 {% endif %}

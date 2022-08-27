@@ -110,6 +110,7 @@ class ImageDownloader:
             self._file_mirror.upload_data(
                 data=photo,
                 upload_path=upload_path,
+                wait_complete=False,
             )
         )
 

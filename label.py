@@ -1,3 +1,4 @@
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 import os
 
@@ -79,13 +80,29 @@ class ImageLabelWriter:
         now = datetime.utcnow()
         self.flush()
         with open(self._labels_file_path, "r") as f:
-            self._backup_file_mirror.upload_data(f.read(), self._timestamped_filepath(self._labels_file_path, now))
-            f.seek(0)
-            self._backup_file_mirror.upload_data(f.read(), self._labels_file_path)
+            data = f.read()
+            self._backup_file_mirror.upload_data(
+                data=data,
+                upload_path=self._timestamped_filepath(self._labels_file_path, now),
+                wait_complete=False,
+            )
+            self._backup_file_mirror.upload_data(
+                data=data,
+                upload_path=self._labels_file_path,
+                wait_complete=False,
+            )
         with open(self._ids_file_path, "r") as f:
-            self._backup_file_mirror.upload_data(f.read(), self._timestamped_filepath(self._labels_file_path, now))
-            f.seek(0)
-            self._backup_file_mirror.upload_data(f.read(), self._ids_file_path)
+            data = f.read()
+            self._backup_file_mirror.upload_data(
+                data=data,
+                upload_path=self._timestamped_filepath(self._labels_file_path, now),
+                wait_complete=False,
+            )
+            self._backup_file_mirror.upload_data(
+                data=data,
+                upload_path=self._ids_file_path,
+                wait_complete=False,
+            )
 
     def check_image_labeled(self, flickr_id: str) -> bool:
         return int(flickr_id) in self._labeled_image_ids
@@ -108,9 +125,11 @@ class LabelImagesController:
         download_path: str,
         image_downloader: ImageDownloader,
         label_writer: ImageLabelWriter,
+        executor: ThreadPoolExecutor,
         per_page: int = PER_PAGE_DEFAULT,
         download_buffer_size: int = BUFFER_SIZE_DEFAULT,
     ):
+        self._executor = executor
         self._base_download_path = download_path
         self._session_download_path = None
         self.session_images_path = None
@@ -126,6 +145,7 @@ class LabelImagesController:
         self.curr_image_id = None
         self._session_up = False
         self.loading = False
+        self._buffering_process: Future = None
 
     def end_session(self):
         if self._session_up:
@@ -146,22 +166,33 @@ class LabelImagesController:
             search_text=search_text,
             per_page=self._per_page,
         )
-        self.buffer()
+        self.do_buffer()
         self._session_up = True
         self.next_image()
 
-    def buffer(self):
+    def _buffer(self):  # should happen in background
         while len(self._image_buffer) < self._download_buffer_size:
             flickr_id, temp_download_path, remote_download_path = next(self._images_iter)
             if self._label_writer.check_image_labeled(flickr_id=flickr_id):
                 continue
             self._image_buffer += [(flickr_id, temp_download_path, remote_download_path)]
 
+    def _clear_buffering_process(self):
+        self._buffering_process = None
+    
+    def do_buffer(self):
+        if self._buffering_process is None:
+            self._buffering_process = self._executor.submit(self._buffer)
+            self._buffering_process.add_done_callback(lambda _: self._clear_buffering_process())
+
     def next_image(self):
-        if len(self._image_buffer) == 0:
-            self.buffer()
-        self.curr_image_id, self.curr_image_path, self._curr_image_remote_path = self._image_buffer.pop(0)
-        self.buffer()
+        if not self.loading:
+            self.loading = True
+            while len(self._image_buffer) == 0:
+                self.do_buffer()
+            self.curr_image_id, self.curr_image_path, self._curr_image_remote_path = self._image_buffer.pop(0)
+            self.do_buffer()
+            self.loading = False
 
     def label(self, label: int):
         self._label_writer.label_image(

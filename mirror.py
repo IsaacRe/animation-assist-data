@@ -1,16 +1,22 @@
 import os
 from google.cloud import storage
 from google.oauth2 import service_account
-from typing import Union
+from typing import Dict, Union
+from concurrent.futures import ThreadPoolExecutor, Future
 
 from util.yaml_parse import load_yaml
 
 
 class FileMirror:
-    def __init__(self, upload_prefix: str):
+    def __init__(self, upload_prefix: str, executor: ThreadPoolExecutor = None):
         self._upload_prefix = upload_prefix
+        self._upload_futures: Dict[str, Future] = {}
+        self._upload_executor = executor
 
-    def upload_data(self, data: Union[str, bytes], upload_path: str, prefix: str = None) -> str:
+    def upload_data(self, data: Union[str, bytes], upload_path: str, prefix: str = None, wait_complete: bool = True) -> str:
+        raise NotImplementedError
+
+    def upload_data_concurrent(self, data: Union[str, bytes], upload_path: str, prefix: str = None) -> str:
         raise NotImplementedError
 
     def upload_file(self, filepath: str, upload_path: str, prefix: str = None) -> str:
@@ -28,8 +34,8 @@ class FileMirror:
 
 class GCSFileUploader(FileMirror):
 
-    def __init__(self, project_name: str, bucket_name: str, auth_json_path: str = "", upload_prefix: str = "") -> None:
-        super().__init__(upload_prefix=upload_prefix)
+    def __init__(self, project_name: str, bucket_name: str, auth_json_path: str = "", upload_prefix: str = "", executor: ThreadPoolExecutor = None) -> None:
+        super().__init__(upload_prefix=upload_prefix, executor=executor)
         self._project_name = project_name
         self._bucket_name = bucket_name
         self._upload_prefix = upload_prefix
@@ -46,9 +52,23 @@ class GCSFileUploader(FileMirror):
             return self._upload_prefix + "/" + upload_path
         return upload_path
 
-    def upload_data(self, data: Union[str, bytes], upload_path: str, prefix: str = None) -> str:
+    def _make_remove_upload_future_callback(self, upload_url: str):
+        def remove_upload_future(future: Future):
+            future_ = self._upload_futures[upload_url]
+            if future_ == future:
+                self._upload_futures.pop(upload_url)
+        return remove_upload_future
+
+    def upload_data(self, data: Union[str, bytes], upload_path: str, prefix: str = None, wait_complete: bool = True) -> str:
         blob = self._bucket.blob(blob_name=self._get_upload_path(upload_path=upload_path, prefix=prefix))
-        blob.upload_from_string(data=data)
+        if wait_complete:
+            blob.upload_from_string(data=data)
+        else:
+            future = self._upload_executor.submit(blob.upload_from_string, data)
+            future.add_done_callback(self._make_remove_upload_future_callback(upload_url=blob.public_url))
+            if blob.public_url in self._upload_futures:
+                self._upload_futures[blob.public_url].cancel() # TODO this doesnt work
+            self._upload_futures[blob.public_url] = future
         return blob.public_url
     
     def upload_file(self, filepath: str, upload_path: str, prefix: str = None) -> str:
@@ -77,7 +97,7 @@ class GCSFileUploader(FileMirror):
 
 
 class LocalFileStore(FileMirror):
-    def upload_data(self, data: Union[str, bytes], upload_path: str, prefix: str = None) -> str:
+    def upload_data(self, data: Union[str, bytes], upload_path: str, prefix: str = None, wait_complete: bool = True) -> str:
         if prefix is None:
             prefix = self._upload_prefix
         if prefix:
