@@ -10,12 +10,14 @@ class FileMirror:
     def __init__(self, upload_prefix: str):
         self._upload_prefix = upload_prefix
 
-    def upload_data(self, data: bytes, upload_path: str):
+    def upload_data(self, data: bytes, upload_path: str, prefix: str = None):
+        raise NotImplementedError
+
+    def upload_file(self, filepath: str, upload_path: str, prefix: str = None):
         raise NotImplementedError
 
     def set_upload_path(self, upload_prefix: str):
         self._upload_prefix = upload_prefix
-
 
 
 class GCSFileUploader(FileMirror):
@@ -31,14 +33,21 @@ class GCSFileUploader(FileMirror):
         self._client = storage.Client(project=project_name, credentials=credentials)
         self._bucket = self._client.bucket(bucket_name=self._bucket_name)
 
-    def _get_upload_path(self, upload_path: str) -> str:
-        if self._upload_prefix:
+    def _get_upload_path(self, upload_path: str, prefix: str = None) -> str:
+        if prefix is None:
+            prefix = self._upload_prefix
+        if prefix:
             return self._upload_prefix + "/" + upload_path
         return upload_path
 
-    def upload_data(self, data: bytes, upload_path: str) -> str:
-        blob = self._bucket.blob(blob_name=self._get_upload_path(upload_path=upload_path))
+    def upload_data(self, data: bytes, upload_path: str, prefix: str = None) -> str:
+        blob = self._bucket.blob(blob_name=self._get_upload_path(upload_path=upload_path, prefix=prefix))
         blob.upload_from_string(data=data)
+        return blob.public_url
+    
+    def upload_file(self, filepath: str, upload_path: str, prefix: str = None) -> str:
+        blob = self._bucket.blob(blob_name=self._get_upload_path(upload_path=upload_path, prefix=prefix))
+        blob.upload_from_filename(filename=filepath)
         return blob.public_url
 
     @staticmethod
@@ -53,7 +62,21 @@ class GCSFileUploader(FileMirror):
 
 
 class LocalFileStore(FileMirror):
-    def upload_data(self, data: bytes, upload_path: str):
-        with open(os.path.join(self._upload_prefix, upload_path), 'wb+') as f:
+    def upload_data(self, data: bytes, upload_path: str, prefix: str = None):
+        if prefix is None:
+            prefix = self._upload_prefix
+        if prefix:
+            upload_path = os.path.join(prefix, upload_path)
+        with open(upload_path, 'wb+') as f:
             f.write(data)
             return upload_path
+
+    def upload_file(self, filepath: str, upload_path: str, prefix: str = None):
+        if prefix is None:
+            prefix = self._upload_prefix
+        if prefix:
+            upload_path = os.path.join(prefix, upload_path)
+        with open(upload_path, 'wb+') as f:
+            with open(filepath, 'rb') as g:
+                f.write(g.read())
+                return upload_path

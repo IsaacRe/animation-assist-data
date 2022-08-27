@@ -27,5 +27,5 @@
 </form>
 {% if curr_img %}
     {{ curr_img }}
-    <img src="{{ url_for('get_image', filepath=images_path + '/' + curr_img) }}" style="height:500px;"/>
+    <img src="{{ url_for('get_image', filepath=curr_img) }}" style="height:500px;"/>
 {% endif %}

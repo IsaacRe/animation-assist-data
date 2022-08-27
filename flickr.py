@@ -15,12 +15,13 @@ IMAGES_SUBDIR = "images"
 
 
 class ImageDownloader:
-    def __init__(self, secret_file: str, file_mirror: FileMirror):
+    def __init__(self, secret_file: str, file_mirror: FileMirror, temp_file_mirror: FileMirror):
         api_key, api_secret = self._load_api_key(secret_file)
         self._api_key = api_key
         self._api_secret = api_secret
         self._flickrapi = FlickrAPI(api_key, api_secret)
         self._file_mirror = file_mirror
+        self._temp_file_mirror = temp_file_mirror
         self._search_metadata_file = None
         self._previous_search_metadata = None
 
@@ -33,6 +34,7 @@ class ImageDownloader:
         mirror_path = os.path.join(download_path, IMAGES_SUBDIR)
         os.makedirs(mirror_path, exist_ok=True)
         self._file_mirror.set_upload_path(upload_prefix=mirror_path)
+        self._temp_file_mirror.set_upload_path(upload_prefix=mirror_path)
         self._load_search_metadata()
 
     @staticmethod
@@ -53,6 +55,7 @@ class ImageDownloader:
         }
         with open(self._search_metadata_file, "w+") as f:
             json.dump(self._previous_search_metadata, f)
+        self._file_mirror.upload_file(self._search_metadata_file, self._search_metadata_file, prefix="")
 
     def _compare_search_metadata(self, per_page: int, search_text: str):
         return (
@@ -95,9 +98,16 @@ class ImageDownloader:
         return requests.get(link, headers={"Content-Type": "image/jpg"}).content, size
 
     def save_photo(self, photo: bytes, photo_id: str, photo_size: str, file_format: str = "jpg"):
-        return self._file_mirror.upload_data(
-            data=photo,
-            upload_path=self._make_filename(photo_id=photo_id, size_label=photo_size, file_format=file_format),
+        upload_path = self._make_filename(photo_id=photo_id, size_label=photo_size, file_format=file_format)
+        return (
+            self._temp_file_mirror.upload_data(
+                data=photo,
+                upload_path=upload_path,
+            ),
+            self._file_mirror.upload_data(
+                data=photo,
+                upload_path=upload_path,
+            )
         )
 
     def download_and_save_photo(self, photo_id: str, file_format: str = "jpg") -> str:
@@ -112,4 +122,4 @@ class ImageDownloader:
         next_page = self._get_next_page(per_page=per_page, search_text=search_text)
         self._save_search_metadata(per_page=per_page, search_text=search_text, last_page=next_page)
         for photo_id in self.search_photos(search_text=search_text, per_page=per_page, page=next_page):
-            yield photo_id, self.download_and_save_photo(photo_id=photo_id)
+            yield photo_id, *self.download_and_save_photo(photo_id=photo_id)

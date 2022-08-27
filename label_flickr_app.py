@@ -2,18 +2,23 @@ import os
 from flask import Flask, render_template, redirect, request, url_for, send_from_directory
 
 from flickr import ImageDownloader
-from label import LabelImagesController
-from mirror import LocalFileStore
+from label import LabelImagesController, ImageLabelWriter
+from mirror import GCSFileUploader, LocalFileStore
 
 DOWNLOAD_PATH = "data"
 FLICKR_SECRET_FILE = "secrets/flickr.yaml"
+GCS_SECRET_FILE = "secrets/gcloud.yaml"
 
 app = Flask(__name__)
 file_store = LocalFileStore(DOWNLOAD_PATH)
-flickr_downloader = ImageDownloader(secret_file=FLICKR_SECRET_FILE, file_mirror=file_store)
+image_uploader = GCSFileUploader.from_secret_file(GCS_SECRET_FILE)
+label_uploader = GCSFileUploader.from_secret_file(GCS_SECRET_FILE)
+flickr_downloader = ImageDownloader(secret_file=FLICKR_SECRET_FILE, temp_file_mirror=file_store, file_mirror=image_uploader)
+label_writer = ImageLabelWriter(DOWNLOAD_PATH, backup_file_mirror=label_uploader)
 controller = LabelImagesController(
     download_path=DOWNLOAD_PATH,
     image_downloader=flickr_downloader,
+    label_writer=label_writer,
 )
 
 
