@@ -3,6 +3,7 @@ from google.cloud import storage
 from google.oauth2 import service_account
 from typing import Dict, Union
 from concurrent.futures import ThreadPoolExecutor, Future
+from flask import current_app
 
 from util.yaml_parse import load_yaml
 
@@ -61,6 +62,7 @@ class GCSFileUploader(FileMirror):
 
     def upload_data(self, data: Union[str, bytes], upload_path: str, prefix: str = None, wait_complete: bool = True) -> str:
         blob = self._bucket.blob(blob_name=self._get_upload_path(upload_path=upload_path, prefix=prefix))
+        current_app.logger.debug(f"Uploading to {blob.public_url}")
         if wait_complete:
             blob.upload_from_string(data=data)
         else:
@@ -73,16 +75,19 @@ class GCSFileUploader(FileMirror):
     
     def upload_file(self, filepath: str, upload_path: str, prefix: str = None) -> str:
         blob = self._bucket.blob(blob_name=self._get_upload_path(upload_path=upload_path, prefix=prefix))
+        current_app.logger.debug(f"Uploading to {blob.public_url}")
         blob.upload_from_filename(filename=filepath)
         return blob.public_url
 
     def download_data(self, filepath: str, prefix: str) -> bytes:
         blob = self._bucket.blob(blob_name=self._get_upload_path(upload_path=filepath, prefix=prefix))
+        current_app.logger.debug(f"Downloading from {blob.public_url}")
         return blob.download_as_bytes()
 
     def download_file(self, download_path: str, filepath: str, prefix: str = None) -> str:
         blob = self._bucket.blob(blob_name=self._get_upload_path(upload_path=filepath, prefix=prefix))
         blob.download_to_filename(filename=download_path)
+        current_app.logger.debug(f"Downloading from {blob.public_url}")
         return download_path
 
     @staticmethod
@@ -105,6 +110,7 @@ class LocalFileStore(FileMirror):
         open_conf = 'w+'
         if isinstance(data, bytes):
             open_conf = 'wb+'
+        current_app.logger.debug(f"Uploading to {upload_path}")
         with open(upload_path, open_conf) as f:
             f.write(data)
             return upload_path
@@ -114,6 +120,7 @@ class LocalFileStore(FileMirror):
             prefix = self._upload_prefix
         if prefix:
             upload_path = os.path.join(prefix, upload_path)
+        current_app.logger.debug(f"Downloading from {upload_path}")
         with open(upload_path, 'wb+') as f:
             with open(filepath, 'rb') as g:
                 f.write(g.read())

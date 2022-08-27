@@ -36,6 +36,7 @@ controller = LabelImagesController(
     image_downloader=flickr_downloader,
     label_writer=label_writer,
     executor=thread_executor,
+    download_buffer_size=5,
 )
 
 
