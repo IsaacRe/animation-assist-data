@@ -10,9 +10,9 @@ jupyter = "*"
 google-cloud-storage = "*"
 google-resumable-media = "*"
 google-auth = "*"
-opencv-python = "*"
 pillow = "*"
 pandas = "*"
+flask = "*"
 
 [dev-packages]
 
