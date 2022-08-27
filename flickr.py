@@ -1,8 +1,8 @@
-from dataclasses import dataclass
 import os
 from typing import Iterable, List, Tuple
 import requests
 import json
+import google.api_core.exceptions
 
 from util.yaml_parse import load_yaml
 from mirror import FileMirror
@@ -43,19 +43,21 @@ class ImageDownloader:
         return yaml_file["api_key"], yaml_file["api_secret"]
 
     def _load_search_metadata(self):
-        if os.path.exists(self._search_metadata_file):
-            with open(self._search_metadata_file, "r") as f:
-                self._previous_search_metadata = json.load(f)
+        try:
+            self._previous_search_metadata = json.loads(
+                self._file_mirror.download_data(self._search_metadata_file, prefix="")
+            )
+        except google.api_core.exceptions.NotFound:
+            return
 
     def _save_search_metadata(self, per_page: int, search_text: str, last_page: int):
         self._previous_search_metadata = {
             "per_page": per_page,
             "search_text": search_text,
             "last_page": last_page,
+            "max_taken_date": MAX_TAKEN_DATE,
         }
-        with open(self._search_metadata_file, "w+") as f:
-            json.dump(self._previous_search_metadata, f)
-        self._file_mirror.upload_file(self._search_metadata_file, self._search_metadata_file, prefix="")
+        self._file_mirror.upload_data(json.dumps(self._previous_search_metadata), self._search_metadata_file, prefix="")
 
     def _compare_search_metadata(self, per_page: int, search_text: str):
         return (
@@ -63,6 +65,7 @@ class ImageDownloader:
             or (
                 self._previous_search_metadata["per_page"] == per_page
                 and self._previous_search_metadata["search_text"] == search_text
+                and self._previous_search_metadata["max_taken_date"] == MAX_TAKEN_DATE
             )
         )
 
