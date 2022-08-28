@@ -2,7 +2,11 @@ version: '3.8'
 services:
   flickr-app:
     build: .
+    image: gcr.io/deep-learning-project-295521/flickr-app:latest
     ports:
       - "8080:8080"
     env_file:
       - .env
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/opt/gcp-credentials.json
+      - FLICKR_CACHE=/opt/flickr-app/.flickr

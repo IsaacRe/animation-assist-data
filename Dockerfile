@@ -11,5 +11,6 @@ RUN pipenv install --system
 COPY flickr_app ./flickr_app
 COPY secrets/deep-learning-project-295521-4e53abd7c726.json ./gcp-credentials.json
 ENV GOOGLE_APPLICATION_CREDENTIALS=/opt/gcp-credentials.json
+ENV FLICKR_CACHE=/opt/flickr_app/.flickr
 
 ENTRYPOINT [ "uwsgi", "--http", ":8080", "--module", "flickr_app.label_flickr_app:app" ]

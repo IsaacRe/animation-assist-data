@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flickr-app
+spec:
+  selector:
+    matchLabels:
+      app: flickr-app
+  template:
+    metadata:
+      labels:
+        app: flickr-app
+    spec:
+      serviceAccountName: default
+      terminationGracePeriodSeconds: 5
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      volumes:
+        - name: flickr-cache
+          emptyDir: {}
+        - name: app-cache
+          emptyDir: {}
+      containers:
+      - name: server
+        volumeMounts:
+        - mountPath: /tmp
+          name: flickr-cache
+        - mountPath: /data
+          name: app-cache
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - all
+          privileged: false
+          readOnlyRootFilesystem: true
+        image: gcr.io/deep-learning-project-295521/flickr-app:latest
+        ports:
+        - containerPort: 8080
+        envFrom:
+        - secretRef:
+            name: flickr-api-token
+        env:
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: /opt/gcp-credentials.json
+        - name: FLICKR_CACHE
+          value: /tmp/.flickr
+        - name: LOCAL_DOWNLOAD_PATH
+          value: /data
+        - name: GCP_PROJECT
+          value: deep-learning-project
+        - name: GCP_BUCKET
+          value: animation-assist
+        - name: DISABLE_STATS
+          value: "1"
+        - name: DISABLE_TRACING
+          value: "1"
+        # - name: JAEGER_SERVICE_ADDR
+        #   value: "jaeger-collector:14268"
+        resources:
+          requests:
+            cpu: 200m
+            memory: 180Mi
+          limits:
+            cpu: 300m
+            memory: 300Mi
+        readinessProbe:
+          initialDelaySeconds: 20
+          periodSeconds: 15
+          exec:
+            command: ["curl", "http://localhost:8080/ready"]
+        livenessProbe:
+          initialDelaySeconds: 20
+          periodSeconds: 15
+          exec:
+            command: ["curl", "http://localhost:8080/live"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flickr-app
+spec:
+  type: ClusterIP
+  selector:
+    app: flickr-app
+  ports:
+  - name: app
+    protocol: TCP
+    port: 8080
+    targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+spec:
+  defaultBackend:
+    service:
+      name: flickr-app
+      port:
+        number: 8080

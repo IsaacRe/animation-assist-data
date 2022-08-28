@@ -6,7 +6,7 @@ from .flickr import ImageDownloader
 from .label import LabelImagesController, ImageLabelWriter
 from .mirror import GCSFileUploader, LocalFileStore
 
-DOWNLOAD_PATH = "data"
+DOWNLOAD_PATH = os.getenv("LOCAL_DOWNLOAD_PATH", "data")
 
 app = Flask(__name__)
 thread_executor = ThreadPoolExecutor(max_workers=4)
@@ -68,3 +68,13 @@ def label_image():
 @app.route('/<path:filepath>')
 def get_image(filepath: str):
     return send_from_directory("./", filepath, as_attachment=True)
+
+
+@app.route('/ready')
+def ready():
+    return "ready"
+
+
+@app.route('/live')
+def live():
+    return "live"

@@ -1,5 +1,5 @@
 import os
-from typing import Iterable, List, Tuple
+from typing import Iterable, List
 import requests
 import json
 import google.api_core.exceptions
@@ -17,7 +17,7 @@ class ImageDownloader:
     def __init__(self, api_key: str, api_secret: str, file_mirror: FileMirror, temp_file_mirror: FileMirror):
         self._api_key = api_key
         self._api_secret = api_secret
-        self._flickrapi = FlickrAPI(api_key, api_secret)
+        self._flickrapi = FlickrAPI(api_key, api_secret, token_cache_location=os.getenv("FLICKR_CACHE"))
         self._file_mirror = file_mirror
         self._temp_file_mirror = temp_file_mirror
         self._search_metadata_file = None
