@@ -5,8 +5,6 @@ from typing import Dict, Union
 from concurrent.futures import ThreadPoolExecutor, Future
 from flask import current_app
 
-from util.yaml_parse import load_yaml
-
 
 class FileMirror:
     def __init__(self, upload_prefix: str, executor: ThreadPoolExecutor = None):
@@ -89,16 +87,6 @@ class GCSFileUploader(FileMirror):
         blob.download_to_filename(filename=download_path)
         current_app.logger.debug(f"Downloading from {blob.public_url}")
         return download_path
-
-    @staticmethod
-    def from_secret_file(file_path: str) -> "GCSFileUploader":
-        secret_file = load_yaml(file_path=file_path)
-        return GCSFileUploader(
-            project_name=secret_file.get("gcp_project"),
-            bucket_name=secret_file.get("gcs_upload_bucket"),
-            auth_json_path=secret_file.get("gcp_auth_json"),
-            upload_prefix=secret_file.get("gcs_upload_prefix"),
-        )
 
 
 class LocalFileStore(FileMirror):

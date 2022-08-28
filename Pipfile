@@ -13,6 +13,7 @@ google-auth = "*"
 pillow = "*"
 pandas = "*"
 flask = "*"
+uwsgi = "*"
 
 [dev-packages]
 

@@ -2,12 +2,12 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 import os
 
-from flickr import (
+from .flickr import (
     ImageDownloader,
     PER_PAGE_DEFAULT,
     IMAGES_SUBDIR,
 )
-from mirror import FileMirror
+from .mirror import FileMirror
 
 
 TIMESTAMP_FORMAT = "%Y%m%dT%H%M%S"

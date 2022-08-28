@@ -4,8 +4,7 @@ import requests
 import json
 import google.api_core.exceptions
 
-from util.yaml_parse import load_yaml
-from mirror import FileMirror
+from .mirror import FileMirror
 from flickrapi import FlickrAPI
 
 MAX_TAKEN_DATE = 1660730319
@@ -15,8 +14,7 @@ IMAGES_SUBDIR = "images"
 
 
 class ImageDownloader:
-    def __init__(self, secret_file: str, file_mirror: FileMirror, temp_file_mirror: FileMirror):
-        api_key, api_secret = self._load_api_key(secret_file)
+    def __init__(self, api_key: str, api_secret: str, file_mirror: FileMirror, temp_file_mirror: FileMirror):
         self._api_key = api_key
         self._api_secret = api_secret
         self._flickrapi = FlickrAPI(api_key, api_secret)
@@ -36,11 +34,6 @@ class ImageDownloader:
         self._file_mirror.set_upload_path(upload_prefix=mirror_path)
         self._temp_file_mirror.set_upload_path(upload_prefix=mirror_path)
         self._load_search_metadata()
-
-    @staticmethod
-    def _load_api_key(secret_file: str) -> Tuple[str, str]:
-        yaml_file = load_yaml(file_path=secret_file)
-        return yaml_file["api_key"], yaml_file["api_secret"]
 
     def _load_search_metadata(self):
         try:
