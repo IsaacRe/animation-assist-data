@@ -8,8 +8,8 @@ WORKDIR ${BASE_DIR}
 COPY Pipfile Pipfile.lock ./
 RUN pipenv install --system
 
-COPY src ./src
+COPY flickr_app ./flickr_app
 COPY secrets/deep-learning-project-295521-4e53abd7c726.json ./gcp-credentials.json
 ENV GOOGLE_APPLICATION_CREDENTIALS=/opt/gcp-credentials.json
 
-ENTRYPOINT [ "uwsgi", "--http", ":8080", "--module", "src.label_flickr_app:app" ]
+ENTRYPOINT [ "uwsgi", "--http", ":8080", "--module", "flickr_app.label_flickr_app:app" ]
