@@ -44,6 +44,8 @@ spec:
         - secretRef:
             name: flickr-api-token
         env:
+        - name: LOG_LEVEL
+          value: DEBUG
         - name: GOOGLE_APPLICATION_CREDENTIALS
           value: /opt/gcp-credentials.json
         - name: FLICKR_CACHE
@@ -58,8 +60,6 @@ spec:
           value: "1"
         - name: DISABLE_TRACING
           value: "1"
-        # - name: JAEGER_SERVICE_ADDR
-        #   value: "jaeger-collector:14268"
         resources:
           requests:
             cpu: 200m

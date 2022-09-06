@@ -9,6 +9,7 @@ from .mirror import GCSFileUploader, LocalFileStore
 DOWNLOAD_PATH = os.getenv("LOCAL_DOWNLOAD_PATH", "data")
 
 app = Flask(__name__)
+app.logger.setLevel(os.getenv("LOG_LEVEL", "INFO").upper())
 thread_executor = ThreadPoolExecutor(max_workers=4)
 file_store = LocalFileStore(DOWNLOAD_PATH)
 image_uploader = GCSFileUploader(
