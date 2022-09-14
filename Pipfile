@@ -14,6 +14,9 @@ pillow = "*"
 pandas = "*"
 flask = "*"
 uwsgi = "*"
+alembic = "*"
+sqlalchemy = "*"
+psycopg2 = "*"
 
 [dev-packages]
 

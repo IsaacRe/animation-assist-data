@@ -59,16 +59,19 @@ class GCSFileUploader(FileMirror):
         return remove_upload_future
 
     def upload_data(self, data: Union[str, bytes], upload_path: str, prefix: str = None, wait_complete: bool = True) -> str:
+        # TODO: only upload if doesnt already exist
         blob = self._bucket.blob(blob_name=self._get_upload_path(upload_path=upload_path, prefix=prefix))
         current_app.logger.debug(f"Uploading to {blob.public_url}")
-        if wait_complete:
-            blob.upload_from_string(data=data)
-        else:
-            future = self._upload_executor.submit(blob.upload_from_string, data)
-            future.add_done_callback(self._make_remove_upload_future_callback(upload_url=blob.public_url))
-            if blob.public_url in self._upload_futures:
-                self._upload_futures[blob.public_url].cancel() # TODO this doesnt work
-            self._upload_futures[blob.public_url] = future
+        # TODO: async not working
+        # if wait_complete:
+        #     blob.upload_from_string(data=data)
+        # else:
+        #     future = self._upload_executor.submit(blob.upload_from_string, data)
+        #     future.add_done_callback(self._make_remove_upload_future_callback(upload_url=blob.public_url))
+        #     if blob.public_url in self._upload_futures:
+        #         self._upload_futures[blob.public_url].cancel() # TODO this doesnt work
+        #     self._upload_futures[blob.public_url] = future
+        blob.upload_from_string(data=data)
         return blob.public_url
     
     def upload_file(self, filepath: str, upload_path: str, prefix: str = None) -> str:

@@ -27,6 +27,6 @@
 </form>
 {% if curr_img %}
     Current Image: {{ curr_img }}
-    Loading? {{ loading }}
     <img src="{{ url_for('get_image', filepath=curr_img) }}" style="height:500px;"/>
 {% endif %}
+Loading? {{ loading }}

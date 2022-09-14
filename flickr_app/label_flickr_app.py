@@ -2,8 +2,10 @@ import os
 from flask import Flask, render_template, redirect, request, url_for, send_from_directory
 from concurrent.futures import ThreadPoolExecutor
 
+from db.client import DBClient
+
 from .flickr import ImageDownloader
-from .label import LabelImagesController, ImageLabelWriter
+from .label import LabelImagesController, DatasetInterface
 from .mirror import GCSFileUploader, LocalFileStore
 
 DOWNLOAD_PATH = os.getenv("LOCAL_DOWNLOAD_PATH", "data")
@@ -18,23 +20,18 @@ image_uploader = GCSFileUploader(
     auth_json_path=os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
     executor=thread_executor,
 )
-label_uploader = GCSFileUploader(
-    project_name=os.getenv("GCP_PROJECT"),
-    bucket_name=os.getenv("GCP_BUCKET"),
-    auth_json_path=os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
-    executor=thread_executor,
-)
+db_client = DBClient(os.getenv("FLICKR_APP_DB_URL"))
 flickr_downloader = ImageDownloader(
     api_key=os.getenv("FLICKR_API_KEY"),
     api_secret=os.getenv("FLICKR_API_SECRET"),
     temp_file_mirror=file_store,
     file_mirror=image_uploader,
 )
-label_writer = ImageLabelWriter(DOWNLOAD_PATH, backup_file_mirror=label_uploader)
+labeler = DatasetInterface(db_client=db_client)
 controller = LabelImagesController(
     download_path=DOWNLOAD_PATH,
     image_downloader=flickr_downloader,
-    label_writer=label_writer,
+    dataset_interface=labeler,
     executor=thread_executor,
     download_buffer_size=5,
 )
@@ -68,7 +65,7 @@ def label_image():
 
 @app.route('/<path:filepath>')
 def get_image(filepath: str):
-    return send_from_directory("./", filepath, as_attachment=True)
+    return send_from_directory("../", filepath, as_attachment=True)
 
 
 @app.route('/ready')

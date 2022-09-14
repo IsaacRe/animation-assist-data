@@ -2,6 +2,9 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 import os
 
+from db.client import DBClient
+from flickr_app.util import MAX_TAKEN_DATE, ImageSearch, InvalidSearchException
+
 from .flickr import (
     ImageDownloader,
     PER_PAGE_DEFAULT,
@@ -12,110 +15,104 @@ from .mirror import FileMirror
 
 TIMESTAMP_FORMAT = "%Y%m%dT%H%M%S"
 DF_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
-LABELS_FILENAME = "images.csv"
-IMAGE_IDS_FILENAME = "image_ids.txt"
 BUFFER_SIZE_DEFAULT = 1
 
 
-class ImageLabelWriter:
+class DatasetInterface:
 
-    def __init__(self, save_path: str, backup_file_mirror: FileMirror):
-        self._save_path = save_path
-        self._labels_file_path = os.path.join(save_path, LABELS_FILENAME)
-        self._ids_file_path = os.path.join(save_path, IMAGE_IDS_FILENAME)
-        self._backup_file_mirror = backup_file_mirror
-        backup_file_mirror.set_upload_path(upload_prefix="")
-        self._labels_file_handle = None
-        self._ids_file_handle = None
-        self._labeled_image_ids = set()
+    def __init__(self, db_client: DBClient):
+        self._db_client = db_client
+        self._search_id = None
 
-    def __enter__(self):
-        self.open()
-        return self
-
-    def __exit__(self):
-        self.close()
-
-    def _write_header(self):
-        self._labels_file_handle.write("flickr_id,image_path,label,timestamp\n")
-
-    def _load_labeled_image_ids(self):
-        with open(self._ids_file_path, "r") as f:
-            self._labeled_image_ids = {
-                int(id_) for id_ in f.readlines()
-            }
-
-    def _timestamped_filepath(self, filepath: str, timestamp: datetime):
-        filepath, filename = os.path.split(filepath)
-        return os.path.join(
-            filepath,
-            str(timestamp.year),
-            str(timestamp.month),
-            str(timestamp.day),
-            f"{timestamp.strftime(TIMESTAMP_FORMAT)}_{filename}",
-        )
-    
-    def open(self):
-        if os.path.exists(self._labels_file_path):
-            self._load_labeled_image_ids()
-            self._labels_file_handle = open(self._labels_file_path, "a")
-            self._ids_file_handle = open(self._ids_file_path, "a")
-            return
-        self._labels_file_handle = open(self._labels_file_path, "w+")
-        self._ids_file_handle = open(self._ids_file_path, "w+")
-        self._write_header()
-        self.flush()
-
-    def close(self):
-        self._labels_file_handle.close()
-        self._labels_file_handle = None
-        self._ids_file_handle.close()
-        self._ids_file_handle = None
-
-    def flush(self):
-        self._labels_file_handle.flush()
-        self._ids_file_handle.flush()
-
-    def backup(self):
-        now = datetime.utcnow()
-        self.flush()
-        with open(self._labels_file_path, "r") as f:
-            data = f.read()
-            self._backup_file_mirror.upload_data(
-                data=data,
-                upload_path=self._timestamped_filepath(self._labels_file_path, now),
-                wait_complete=False,
-            )
-            self._backup_file_mirror.upload_data(
-                data=data,
-                upload_path=self._labels_file_path,
-                wait_complete=False,
-            )
-        with open(self._ids_file_path, "r") as f:
-            data = f.read()
-            self._backup_file_mirror.upload_data(
-                data=data,
-                upload_path=self._timestamped_filepath(self._labels_file_path, now),
-                wait_complete=False,
-            )
-            self._backup_file_mirror.upload_data(
-                data=data,
-                upload_path=self._ids_file_path,
-                wait_complete=False,
-            )
+    def new_search(self, query: str) -> ImageSearch:  # TODO: allow specification of search parameters
+        per_page = PER_PAGE_DEFAULT
+        max_taken_date = MAX_TAKEN_DATE
+        last_page_idx = 0
+        last_image_idx = 0
+        with self._db_client.transaction() as session:
+            result = session.execute(
+                """
+                    SELECT id, per_page, max_taken_date, last_page_idx, last_image_idx
+                    FROM searches WHERE query = :query
+                    LIMIT 1
+                """,
+                {"query": query}
+            ).fetchone()
+            if result is not None:
+                current_search = ImageSearch(
+                    id=result["id"],
+                    query=query,
+                    last_image_idx=result["last_image_idx"],
+                    last_page_idx=result["last_page_idx"],
+                    per_page=result["per_page"],
+                    max_taken_date=result["max_taken_date"],
+                )
+                session.execute(
+                    "UPDATE searches SET last_search_time = NOW() WHERE id = :id",
+                    {"id": current_search.id},
+                )
+            else:
+                result = session.execute(
+                    """
+                        INSERT INTO searches(query, per_page, max_taken_date, last_page_idx, last_image_idx)
+                        VALUES (:query, :per_page, :max_taken_date, :last_page_idx, :last_image_idx)
+                        ON CONFLICT(query) DO NOTHING
+                        RETURNING id
+                    """,
+                    {
+                        "query": query,
+                        "per_page": per_page,
+                        "last_page_idx": last_page_idx,
+                        "last_image_idx": last_image_idx,
+                        "max_taken_date": max_taken_date,
+                    }
+                ).fetchone()
+                if result is None:
+                    raise InvalidSearchException("Failed to insert query")
+                current_search = ImageSearch(
+                    id=result["id"],
+                    query=query,
+                    last_page_idx=last_image_idx,
+                    last_image_idx=last_image_idx,
+                    max_taken_date=max_taken_date,
+                )
+            self._search_id = current_search.id
+            return current_search
 
     def check_image_labeled(self, flickr_id: str) -> bool:
-        return int(flickr_id) in self._labeled_image_ids
+        with self._db_client.transaction() as session:
+            return session.execute(
+                "SELECT flickr_id FROM images WHERE flickr_id = :id", {"id": flickr_id}
+            ).fetchone() is not None
 
-    def label_image(self, flickr_id: str, image_path: str, label: int) -> bool:
-        label_time = datetime.utcnow()
-        if self.check_image_labeled(flickr_id=flickr_id):
-            return False
-        self._labeled_image_ids.add(int(flickr_id))
-        self._labels_file_handle.write(f"{flickr_id},{image_path},{label},{label_time.strftime(DF_TIMESTAMP_FORMAT)}\n")
-        self._ids_file_handle.write(f"{flickr_id}\n")
-        self.flush()
-        return True
+    def label_image(self, user_id: int, flickr_id: str, image_path: str, label: int, search: ImageSearch) -> bool:
+        with self._db_client.transaction() as session:
+            result = session.execute(
+                """
+                    WITH update_search AS (
+                        UPDATE searches
+                        SET
+                            last_page_idx = :page_idx,
+                            last_image_idx = :image_idx,
+                            last_search_time = NOW()
+                        WHERE id = :search_id
+                    )
+                    INSERT INTO images(flickr_id, image_path, label, user_id, search_id, page_idx, image_idx)
+                    VALUES (:flickr_id, :image_path, :label, :user_id, :search_id, :page_idx, :image_idx)
+                    ON CONFLICT (flickr_id) DO NOTHING
+                    RETURNING flickr_id
+                """,
+                {
+                    "flickr_id": flickr_id,
+                    "image_path": image_path,
+                    "label": label,
+                    "user_id": user_id,
+                    "search_id": search.id,
+                    "page_idx": search.last_page_idx,
+                    "image_idx": search.last_image_idx,
+                }
+            ).fetchone()
+        return result is not None
 
 
 class LabelImagesController:
@@ -124,18 +121,19 @@ class LabelImagesController:
         self,
         download_path: str,
         image_downloader: ImageDownloader,
-        label_writer: ImageLabelWriter,
+        dataset_interface: DatasetInterface,
         executor: ThreadPoolExecutor,
         per_page: int = PER_PAGE_DEFAULT,
         download_buffer_size: int = BUFFER_SIZE_DEFAULT,
     ):
+        self.user_id = None
         self._executor = executor
         self._base_download_path = download_path
         self._session_download_path = None
         self.session_images_path = None
         self._image_downloader = image_downloader
         self._images_iter = None
-        self._label_writer = label_writer
+        self._dataset_interface = dataset_interface
         self._per_page = per_page
         self._download_buffer_size = download_buffer_size
         self.search_text = None
@@ -146,26 +144,24 @@ class LabelImagesController:
         self._session_up = False
         self.loading = False
         self._buffering_process: Future = None
+        self._current_search: ImageSearch = None
 
     def end_session(self):
         if self._session_up:
             self._image_buffer = []
-            self._label_writer.close()
             self._image_downloader.end_session()
             self._session_up = False
 
-    def new_session(self, search_text: str):
+    def new_session(self, search_text: str, user_id: int = 1): # TODO: specify user_id
         self.end_session()
+        self.user_id = user_id
         self.search_text = search_text
         self._session_download_path = os.path.join(self._base_download_path, search_text.replace(" ", "_"))
         self.session_images_path = os.path.join(self._session_download_path, IMAGES_SUBDIR)
         os.makedirs(self._session_download_path, exist_ok=True)
-        self._label_writer.open()
-        self._image_downloader.new_session(download_path=self._session_download_path)
-        self._images_iter = self._image_downloader.iter_photos(
-            search_text=search_text,
-            per_page=self._per_page,
-        )
+        self._current_search = self._dataset_interface.new_search(search_text)
+        self._image_downloader.new_session(download_path=self._session_download_path, search=self._current_search)
+        self._images_iter = self._image_downloader.iter_photos()
         self.do_buffer()
         self._session_up = True
         self.next_image()
@@ -173,7 +169,7 @@ class LabelImagesController:
     def _buffer(self):  # should happen in background
         while len(self._image_buffer) < self._download_buffer_size:
             flickr_id, temp_download_path, remote_download_path = next(self._images_iter)
-            if self._label_writer.check_image_labeled(flickr_id=flickr_id):
+            if self._dataset_interface.check_image_labeled(flickr_id=flickr_id):
                 continue
             self._image_buffer += [(flickr_id, temp_download_path, remote_download_path)]
 
@@ -181,9 +177,11 @@ class LabelImagesController:
         self._buffering_process = None
     
     def do_buffer(self):
-        if self._buffering_process is None:
-            self._buffering_process = self._executor.submit(self._buffer)
-            self._buffering_process.add_done_callback(lambda _: self._clear_buffering_process())
+        self._buffer()
+        # TODO: async not working
+        # if self._buffering_process is None:
+        #     self._buffering_process = self._executor.submit(self._buffer)
+        #     self._buffering_process.add_done_callback(lambda _: self._clear_buffering_process())
 
     def next_image(self):
         if not self.loading:
@@ -195,9 +193,12 @@ class LabelImagesController:
             self.loading = False
 
     def label(self, label: int):
-        self._label_writer.label_image(
+        self._dataset_interface.label_image(
+            user_id=self.user_id,
             flickr_id=self.curr_image_id,
             image_path=self._curr_image_remote_path,
             label=label,
+            search=self._current_search,
         )
+        self._current_search.incr_image()
         self.next_image()
