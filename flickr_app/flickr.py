@@ -1,7 +1,10 @@
+import logging
 import os
 from typing import Iterable, List
 import requests
 from flask import current_app
+from concurrent.futures import Future, ThreadPoolExecutor
+import itertools
 
 from .mirror import FileMirror
 from flickrapi import FlickrAPI
@@ -16,13 +19,14 @@ IMAGES_SUBDIR = "images"
 
 
 class ImageDownloader:
-    def __init__(self, api_key: str, api_secret: str, file_mirror: FileMirror, temp_file_mirror: FileMirror):
+    def __init__(self, logger: logging.Logger, api_key: str, api_secret: str, file_mirror: FileMirror, temp_file_mirror: FileMirror):
         self._api_key = api_key
         self._api_secret = api_secret
         self._flickrapi = FlickrAPI(api_key, api_secret, token_cache_location=os.getenv("FLICKR_CACHE"))
         self._file_mirror = file_mirror
         self._temp_file_mirror = temp_file_mirror
         self._current_search = None
+        self._logger = logger
 
     def end_session(self):
         current_app.logger.debug("ImageDownloader - session ended")
@@ -37,9 +41,9 @@ class ImageDownloader:
         self._current_search = search
 
     def _get_download_link(self, photo_id: str, size_label: str = "Original") -> str:
-        current_app.logger.debug(f"Getting download options for photo {photo_id}")
+        self._logger.debug(f"Getting download options for photo {photo_id}")
         sizes = self._flickrapi.photos.getSizes(photo_id=photo_id, format="parsed-json")
-        current_app.logger.debug("Done")
+        self._logger.debug("Done")
         max_size_link = None
         max_size = 0
         size_label_used = None
@@ -59,9 +63,9 @@ class ImageDownloader:
 
     def download_photo(self, photo_id: str):
         link, size = self._get_download_link(photo_id=photo_id)
-        current_app.logger.debug(f"Downloading from {link}...")
+        self._logger.debug(f"Downloading from {link}...")
         data = requests.get(link, headers={"Content-Type": "image/jpg"}).content
-        current_app.logger.debug("Done")
+        self._logger.debug("Done")
         return data, size
 
     def save_photo(self, photo: bytes, photo_id: str, photo_size: str, file_format: str = "jpg"):
@@ -80,7 +84,7 @@ class ImageDownloader:
 
     def download_and_save_photo(self, photo_id: str, file_format: str = "jpg") -> str:
         img, size = self.download_photo(photo_id=photo_id)
-        return self.save_photo(photo=img, photo_id=photo_id, photo_size=size, file_format=file_format)
+        return photo_id, *self.save_photo(photo=img, photo_id=photo_id, photo_size=size, file_format=file_format)
     
     def search_photos(self, search_text: str, per_page: int = PER_PAGE_DEFAULT, page: int = 0, max_taken_date: int = MAX_TAKEN_DATE) -> List[str]:
         current_app.logger.debug(f"Searching for photos: '{search_text}', page {page}")
@@ -103,6 +107,6 @@ class ImageDownloader:
             ):
                 if i < start_image:
                     continue
-                yield photo_id, *self.download_and_save_photo(photo_id=photo_id)
+                yield photo_id
             page += 1
             start_image = 0

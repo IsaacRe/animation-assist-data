@@ -1,6 +1,9 @@
 from concurrent.futures import Future, ThreadPoolExecutor
-from flask import current_app
+import logging
+from typing import Iterable, Optional, Tuple
+from flask import current_app, copy_current_request_context
 import os
+import itertools
 
 from db.client import DBClient
 from flickr_app.util import MAX_TAKEN_DATE, ImageSearch, InvalidSearchException
@@ -20,9 +23,10 @@ BUFFER_SIZE_DEFAULT = 1
 
 class DatabaseInterface:
 
-    def __init__(self, db_client: DBClient):
+    def __init__(self, db_client: DBClient, logger: logging.Logger):
         self._db_client = db_client
         self._search_id = None
+        self._logger = logger
 
     def new_search(self, query: str) -> ImageSearch:  # TODO: allow specification of search parameters
         per_page = PER_PAGE_DEFAULT
@@ -83,13 +87,13 @@ class DatabaseInterface:
             return current_search
 
     def check_image_labeled(self, flickr_id: str) -> bool:
-        current_app.logger.debug(f"Checking label for image {flickr_id}")
+        self._logger.debug(f"Checking label for image {flickr_id}")
         with self._db_client.transaction() as session:
             image_labeled = session.execute(
                 "SELECT flickr_id FROM images WHERE flickr_id = :id", {"id": flickr_id}
             ).fetchone() is not None
             if image_labeled:
-                current_app.logger.debug("Found label")
+                self._logger.debug("Found label")
             return image_labeled
 
 
@@ -177,20 +181,30 @@ class LabelImagesController:
         self._session_up = True
         self.next_image()
 
-    def _buffer(self):  # should happen in background
-        current_app.logger.debug(f"Buffering {self._download_buffer_size - len(self._image_buffer)} images...")
-        while len(self._image_buffer) < self._download_buffer_size:
-            flickr_id, temp_download_path, remote_download_path = next(self._images_iter)
-            if self._dataset_interface.check_image_labeled(flickr_id=flickr_id):
-                continue
-            self._image_buffer += [(flickr_id, temp_download_path, remote_download_path)]
-            current_app.logger.debug(f"Image {flickr_id} added to buffer")
-
     def _clear_buffering_process(self):
         self._buffering_process = None
-    
+
+    def _download_image_if_not_labeled(self, flickr_id: int):
+        if self._dataset_interface.check_image_labeled(flickr_id=flickr_id):
+            return flickr_id, None, None
+        return self._image_downloader.download_and_save_photo(photo_id=flickr_id)
+
+    def _download_images(self, n: int) -> Iterable:
+        yield from map(self._download_image_if_not_labeled, itertools.islice(self._images_iter, n))
+            
+    def _download_images_concurrent(self, executor: ThreadPoolExecutor, n: int) -> Iterable:
+        yield from executor.map(self._download_image_if_not_labeled, itertools.islice(self._images_iter, n))
+
     def do_buffer(self):
-        self._buffer()
+        num_new_images = self._download_buffer_size - len(self._image_buffer)
+        current_app.logger.debug(f"Buffering {num_new_images} images...")
+        for flickr_id, local_path, remote_path in self._download_images_concurrent(self._executor, num_new_images):
+            if local_path:
+                self._image_buffer += [(flickr_id, local_path, remote_path)]
+                current_app.logger.debug(f"Image {flickr_id} added to buffer")
+            else:
+                current_app.logger.debug(f"Image {flickr_id} skipped because it was already labeled")
+
         # TODO: async not working
         # if self._buffering_process is None:
         #     self._buffering_process = self._executor.submit(self._buffer)

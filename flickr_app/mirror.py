@@ -1,3 +1,4 @@
+import logging
 import os
 from google.cloud import storage
 from google.oauth2 import service_account
@@ -7,10 +8,11 @@ from flask import current_app
 
 
 class FileMirror:
-    def __init__(self, upload_prefix: str, executor: ThreadPoolExecutor = None):
+    def __init__(self, upload_prefix: str, logger: logging.Logger, executor: ThreadPoolExecutor = None):
         self._upload_prefix = upload_prefix
         self._upload_futures: Dict[str, Future] = {}
         self._upload_executor = executor
+        self._logger = logger
 
     def upload_data(self, data: Union[str, bytes], upload_path: str, prefix: str = None, wait_complete: bool = True) -> str:
         raise NotImplementedError
@@ -33,8 +35,8 @@ class FileMirror:
 
 class GCSFileUploader(FileMirror):
 
-    def __init__(self, project_name: str, bucket_name: str, auth_json_path: str = "", upload_prefix: str = "", executor: ThreadPoolExecutor = None) -> None:
-        super().__init__(upload_prefix=upload_prefix, executor=executor)
+    def __init__(self, logger, project_name: str, bucket_name: str, auth_json_path: str = "", upload_prefix: str = "", executor: ThreadPoolExecutor = None) -> None:
+        super().__init__(upload_prefix=upload_prefix, executor=executor, logger=logger)
         self._project_name = project_name
         self._bucket_name = bucket_name
         self._upload_prefix = upload_prefix
@@ -61,7 +63,7 @@ class GCSFileUploader(FileMirror):
     def upload_data(self, data: Union[str, bytes], upload_path: str, prefix: str = None, wait_complete: bool = True) -> str:
         # TODO: only upload if doesnt already exist
         blob = self._bucket.blob(blob_name=self._get_upload_path(upload_path=upload_path, prefix=prefix))
-        current_app.logger.debug(f"Uploading to {blob.public_url}")
+        self._logger.debug(f"Uploading to {blob.public_url}")
         # TODO: async not working
         # if wait_complete:
         #     blob.upload_from_string(data=data)
@@ -72,25 +74,25 @@ class GCSFileUploader(FileMirror):
         #         self._upload_futures[blob.public_url].cancel() # TODO this doesnt work
         #     self._upload_futures[blob.public_url] = future
         blob.upload_from_string(data=data)
-        current_app.logger.debug("Done")
+        self._logger.debug("Done")
         return blob.public_url
     
     def upload_file(self, filepath: str, upload_path: str, prefix: str = None) -> str:
         blob = self._bucket.blob(blob_name=self._get_upload_path(upload_path=upload_path, prefix=prefix))
-        current_app.logger.debug(f"Uploading to {blob.public_url}")
+        self._logger.debug(f"Uploading to {blob.public_url}")
         blob.upload_from_filename(filename=filepath)
-        current_app.logger.debug("Done")
+        self._logger.debug("Done")
         return blob.public_url
 
     def download_data(self, filepath: str, prefix: str) -> bytes:
         blob = self._bucket.blob(blob_name=self._get_upload_path(upload_path=filepath, prefix=prefix))
-        current_app.logger.debug(f"Downloading from {blob.public_url}")
+        self._logger.debug(f"Downloading from {blob.public_url}")
         return blob.download_as_bytes()
 
     def download_file(self, download_path: str, filepath: str, prefix: str = None) -> str:
         blob = self._bucket.blob(blob_name=self._get_upload_path(upload_path=filepath, prefix=prefix))
         blob.download_to_filename(filename=download_path)
-        current_app.logger.debug(f"Downloading from {blob.public_url}")
+        self._logger.debug(f"Downloading from {blob.public_url}")
         return download_path
 
 
@@ -103,7 +105,7 @@ class LocalFileStore(FileMirror):
         open_conf = 'w+'
         if isinstance(data, bytes):
             open_conf = 'wb+'
-        current_app.logger.debug(f"Uploading to {upload_path}")
+        self._logger.debug(f"Uploading to {upload_path}")
         with open(upload_path, open_conf) as f:
             f.write(data)
             return upload_path
@@ -113,7 +115,7 @@ class LocalFileStore(FileMirror):
             prefix = self._upload_prefix
         if prefix:
             upload_path = os.path.join(prefix, upload_path)
-        current_app.logger.debug(f"Downloading from {upload_path}")
+        self._logger.debug(f"Downloading from {upload_path}")
         with open(upload_path, 'wb+') as f:
             with open(filepath, 'rb') as g:
                 f.write(g.read())

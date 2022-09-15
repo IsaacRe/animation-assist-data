@@ -13,8 +13,9 @@ DOWNLOAD_PATH = os.getenv("LOCAL_DOWNLOAD_PATH", "data")
 app = Flask(__name__)
 app.logger.setLevel(os.getenv("LOG_LEVEL", "INFO").upper())
 thread_executor = ThreadPoolExecutor(max_workers=4)
-file_store = LocalFileStore(DOWNLOAD_PATH)
+file_store = LocalFileStore(upload_prefix=DOWNLOAD_PATH, logger=app.logger)
 image_uploader = GCSFileUploader(
+    logger=app.logger,
     project_name=os.getenv("GCP_PROJECT"),
     bucket_name=os.getenv("GCP_BUCKET"),
     auth_json_path=os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
@@ -22,12 +23,13 @@ image_uploader = GCSFileUploader(
 )
 db_client = DBClient(os.getenv("FLICKR_APP_DB_URL"))
 flickr_downloader = ImageDownloader(
+    logger=app.logger,
     api_key=os.getenv("FLICKR_API_KEY"),
     api_secret=os.getenv("FLICKR_API_SECRET"),
     temp_file_mirror=file_store,
     file_mirror=image_uploader,
 )
-labeler = DatabaseInterface(db_client=db_client)
+labeler = DatabaseInterface(db_client=db_client, logger=app.logger)
 controller = LabelImagesController(
     download_path=DOWNLOAD_PATH,
     image_downloader=flickr_downloader,
