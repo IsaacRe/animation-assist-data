@@ -107,6 +107,6 @@ class ImageDownloader:
             ):
                 if i < start_image:
                     continue
-                yield photo_id
+                yield photo_id, page, i
             page += 1
             start_image = 0

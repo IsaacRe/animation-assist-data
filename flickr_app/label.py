@@ -184,10 +184,11 @@ class LabelImagesController:
     def _clear_buffering_process(self):
         self._buffering_process = None
 
-    def _download_image_if_not_labeled(self, flickr_id: int):
+    def _download_image_if_not_labeled(self, image_metdata: Tuple[int, int, int]) -> Tuple[int, str, str, int, int]:
+        flickr_id, page_idx, image_idx = image_metdata
         if self._dataset_interface.check_image_labeled(flickr_id=flickr_id):
-            return flickr_id, None, None
-        return self._image_downloader.download_and_save_photo(photo_id=flickr_id)
+            return flickr_id, None, None, None, None
+        return *self._image_downloader.download_and_save_photo(photo_id=flickr_id), page_idx, image_idx
 
     def _download_images(self, n: int) -> Iterable:
         yield from map(self._download_image_if_not_labeled, itertools.islice(self._images_iter, n))
@@ -198,9 +199,9 @@ class LabelImagesController:
     def do_buffer(self):
         num_new_images = self._download_buffer_size - len(self._image_buffer)
         current_app.logger.debug(f"Buffering {num_new_images} images...")
-        for flickr_id, local_path, remote_path in self._download_images_concurrent(self._executor, num_new_images):
+        for flickr_id, local_path, remote_path, page_idx, image_idx in self._download_images_concurrent(self._executor, num_new_images):
             if local_path:
-                self._image_buffer += [(flickr_id, local_path, remote_path)]
+                self._image_buffer += [(flickr_id, local_path, remote_path, page_idx, image_idx)]
                 current_app.logger.debug(f"Image {flickr_id} added to buffer")
             else:
                 current_app.logger.debug(f"Image {flickr_id} skipped because it was already labeled")
@@ -216,7 +217,9 @@ class LabelImagesController:
             self.loading = True
             while len(self._image_buffer) == 0:
                 self.do_buffer()
-            self.curr_image_id, self.curr_image_path, self._curr_image_remote_path = self._image_buffer.pop(0)
+            self.curr_image_id, self.curr_image_path, self._curr_image_remote_path, page_idx, image_idx = self._image_buffer.pop(0)
+            self._current_search.last_page_idx = page_idx
+            self._current_search.last_image_idx = image_idx
             current_app.logger.debug(f"Pulled image {self.curr_image_id} from buffer")
             self.do_buffer()
             self.loading = False
@@ -231,5 +234,4 @@ class LabelImagesController:
             label=label,
             search=self._current_search,
         )
-        self._current_search.incr_image()
         self.next_image()

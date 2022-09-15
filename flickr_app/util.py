@@ -15,12 +15,6 @@ class ImageSearch:
     per_page: int = PER_PAGE_DEFAULT
     max_taken_date: int = MAX_TAKEN_DATE
 
-    def incr_image(self):
-        self.last_image_idx += 1
-        if self.last_image_idx >= self.per_page:
-            self.last_image_idx = 0
-            self.last_page_idx += 1
-
 
 class InvalidSearchException(Exception):
     pass
