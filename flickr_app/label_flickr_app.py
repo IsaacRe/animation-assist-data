@@ -1,11 +1,11 @@
 import os
-from flask import Flask, render_template, redirect, request, url_for, send_from_directory
+from flask import Flask, render_template, redirect, request, url_for, send_from_directory, current_app
 from concurrent.futures import ThreadPoolExecutor
 
 from db.client import DBClient
 
 from .flickr import ImageDownloader
-from .label import LabelImagesController, DatasetInterface
+from .label import LabelImagesController, DatabaseInterface
 from .mirror import GCSFileUploader, LocalFileStore
 
 DOWNLOAD_PATH = os.getenv("LOCAL_DOWNLOAD_PATH", "data")
@@ -27,7 +27,7 @@ flickr_downloader = ImageDownloader(
     temp_file_mirror=file_store,
     file_mirror=image_uploader,
 )
-labeler = DatasetInterface(db_client=db_client)
+labeler = DatabaseInterface(db_client=db_client)
 controller = LabelImagesController(
     download_path=DOWNLOAD_PATH,
     image_downloader=flickr_downloader,
@@ -58,8 +58,10 @@ def new_search():
 @app.route('/label-image', methods=("GET", "POST"))
 def label_image():
     label = request.args.get("label")
-    if controller.curr_image_path:
+    if controller.curr_image_path and not controller.loading:
         controller.label(label=label)
+    else:
+        current_app.logger.debug("Skipping label action because image loading is in progress.")
     return redirect(url_for("label_images_view"))
 
 

@@ -1,8 +1,7 @@
 import os
 from typing import Iterable, List
 import requests
-import json
-import google.api_core.exceptions
+from flask import current_app
 
 from .mirror import FileMirror
 from flickrapi import FlickrAPI
@@ -26,9 +25,11 @@ class ImageDownloader:
         self._current_search = None
 
     def end_session(self):
+        current_app.logger.debug("ImageDownloader - session ended")
         self._current_search = None
 
     def new_session(self, download_path: str, search: ImageSearch):
+        current_app.logger.debug("ImageDownloader - new session")
         mirror_path = os.path.join(download_path, IMAGES_SUBDIR)
         os.makedirs(mirror_path, exist_ok=True)
         self._file_mirror.set_upload_path(upload_prefix=mirror_path)
@@ -36,7 +37,9 @@ class ImageDownloader:
         self._current_search = search
 
     def _get_download_link(self, photo_id: str, size_label: str = "Original") -> str:
+        current_app.logger.debug(f"Getting download options for photo {photo_id}")
         sizes = self._flickrapi.photos.getSizes(photo_id=photo_id, format="parsed-json")
+        current_app.logger.debug("Done")
         max_size_link = None
         max_size = 0
         size_label_used = None
@@ -56,7 +59,10 @@ class ImageDownloader:
 
     def download_photo(self, photo_id: str):
         link, size = self._get_download_link(photo_id=photo_id)
-        return requests.get(link, headers={"Content-Type": "image/jpg"}).content, size
+        current_app.logger.debug(f"Downloading from {link}...")
+        data = requests.get(link, headers={"Content-Type": "image/jpg"}).content
+        current_app.logger.debug("Done")
+        return data, size
 
     def save_photo(self, photo: bytes, photo_id: str, photo_size: str, file_format: str = "jpg"):
         upload_path = self._make_filename(photo_id=photo_id, size_label=photo_size, file_format=file_format)
@@ -77,7 +83,9 @@ class ImageDownloader:
         return self.save_photo(photo=img, photo_id=photo_id, photo_size=size, file_format=file_format)
     
     def search_photos(self, search_text: str, per_page: int = PER_PAGE_DEFAULT, page: int = 0, max_taken_date: int = MAX_TAKEN_DATE) -> List[str]:
+        current_app.logger.debug(f"Searching for photos: '{search_text}', page {page}")
         photos = self._flickrapi.photos.search(text=search_text, per_page=per_page, page=page + 1, format="parsed-json", max_taken_date=max_taken_date)
+        current_app.logger.debug("Done")
         return [photo["id"] for photo in photos["photos"]["photo"]]
 
     def iter_photos(self) -> Iterable:

@@ -1,5 +1,5 @@
 from concurrent.futures import Future, ThreadPoolExecutor
-from datetime import datetime
+from flask import current_app
 import os
 
 from db.client import DBClient
@@ -18,7 +18,7 @@ DF_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 BUFFER_SIZE_DEFAULT = 1
 
 
-class DatasetInterface:
+class DatabaseInterface:
 
     def __init__(self, db_client: DBClient):
         self._db_client = db_client
@@ -29,6 +29,7 @@ class DatasetInterface:
         max_taken_date = MAX_TAKEN_DATE
         last_page_idx = 0
         last_image_idx = 0
+        current_app.logger.debug(f"Syncing new search '{query}' with database")
         with self._db_client.transaction() as session:
             result = session.execute(
                 """
@@ -51,6 +52,7 @@ class DatasetInterface:
                     "UPDATE searches SET last_search_time = NOW() WHERE id = :id",
                     {"id": current_search.id},
                 )
+                current_app.logger.debug(f"Found existing search {current_search.id}")
             else:
                 result = session.execute(
                     """
@@ -76,16 +78,23 @@ class DatasetInterface:
                     last_image_idx=last_image_idx,
                     max_taken_date=max_taken_date,
                 )
+                current_app.logger.debug(f"Initialized new search {current_search.id}")
             self._search_id = current_search.id
             return current_search
 
     def check_image_labeled(self, flickr_id: str) -> bool:
+        current_app.logger.debug(f"Checking label for image {flickr_id}")
         with self._db_client.transaction() as session:
-            return session.execute(
+            image_labeled = session.execute(
                 "SELECT flickr_id FROM images WHERE flickr_id = :id", {"id": flickr_id}
             ).fetchone() is not None
+            if image_labeled:
+                current_app.logger.debug("Found label")
+            return image_labeled
+
 
     def label_image(self, user_id: int, flickr_id: str, image_path: str, label: int, search: ImageSearch) -> bool:
+        current_app.logger.debug(f"Labeling image {flickr_id}: {label}")
         with self._db_client.transaction() as session:
             result = session.execute(
                 """
@@ -121,7 +130,7 @@ class LabelImagesController:
         self,
         download_path: str,
         image_downloader: ImageDownloader,
-        dataset_interface: DatasetInterface,
+        dataset_interface: DatabaseInterface,
         executor: ThreadPoolExecutor,
         per_page: int = PER_PAGE_DEFAULT,
         download_buffer_size: int = BUFFER_SIZE_DEFAULT,
@@ -147,6 +156,7 @@ class LabelImagesController:
         self._current_search: ImageSearch = None
 
     def end_session(self):
+        current_app.logger.debug("LabelImagesController - session ended")
         if self._session_up:
             self._image_buffer = []
             self._image_downloader.end_session()
@@ -154,6 +164,7 @@ class LabelImagesController:
 
     def new_session(self, search_text: str, user_id: int = 1): # TODO: specify user_id
         self.end_session()
+        current_app.logger.debug("LabelImagesController - new session")
         self.user_id = user_id
         self.search_text = search_text
         self._session_download_path = os.path.join(self._base_download_path, search_text.replace(" ", "_"))
@@ -167,11 +178,13 @@ class LabelImagesController:
         self.next_image()
 
     def _buffer(self):  # should happen in background
+        current_app.logger.debug(f"Buffering {self._download_buffer_size - len(self._image_buffer)} images...")
         while len(self._image_buffer) < self._download_buffer_size:
             flickr_id, temp_download_path, remote_download_path = next(self._images_iter)
             if self._dataset_interface.check_image_labeled(flickr_id=flickr_id):
                 continue
             self._image_buffer += [(flickr_id, temp_download_path, remote_download_path)]
+            current_app.logger.debug(f"Image {flickr_id} added to buffer")
 
     def _clear_buffering_process(self):
         self._buffering_process = None
@@ -184,13 +197,17 @@ class LabelImagesController:
         #     self._buffering_process.add_done_callback(lambda _: self._clear_buffering_process())
 
     def next_image(self):
+        current_app.logger.debug("Attempting to load next image...")
         if not self.loading:
             self.loading = True
             while len(self._image_buffer) == 0:
                 self.do_buffer()
             self.curr_image_id, self.curr_image_path, self._curr_image_remote_path = self._image_buffer.pop(0)
+            current_app.logger.debug(f"Pulled image {self.curr_image_id} from buffer")
             self.do_buffer()
             self.loading = False
+        else:
+            current_app.logger.debug("Image already loading. Skipping...")
 
     def label(self, label: int):
         self._dataset_interface.label_image(

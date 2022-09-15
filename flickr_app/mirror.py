@@ -72,12 +72,14 @@ class GCSFileUploader(FileMirror):
         #         self._upload_futures[blob.public_url].cancel() # TODO this doesnt work
         #     self._upload_futures[blob.public_url] = future
         blob.upload_from_string(data=data)
+        current_app.logger.debug("Done")
         return blob.public_url
     
     def upload_file(self, filepath: str, upload_path: str, prefix: str = None) -> str:
         blob = self._bucket.blob(blob_name=self._get_upload_path(upload_path=upload_path, prefix=prefix))
         current_app.logger.debug(f"Uploading to {blob.public_url}")
         blob.upload_from_filename(filename=filepath)
+        current_app.logger.debug("Done")
         return blob.public_url
 
     def download_data(self, filepath: str, prefix: str) -> bytes:
