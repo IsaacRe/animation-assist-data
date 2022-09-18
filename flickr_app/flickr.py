@@ -87,9 +87,9 @@ class ImageDownloader:
         return photo_id, *self.save_photo(photo=img, photo_id=photo_id, photo_size=size, file_format=file_format)
     
     def search_photos(self, search_text: str, per_page: int = PER_PAGE_DEFAULT, page: int = 0, max_taken_date: int = MAX_TAKEN_DATE) -> List[str]:
-        current_app.logger.debug(f"Searching for photos: '{search_text}', page {page}")
+        self._logger.debug(f"Searching for photos: '{search_text}', page {page}")
         photos = self._flickrapi.photos.search(text=search_text, per_page=per_page, page=page + 1, format="parsed-json", max_taken_date=max_taken_date)
-        current_app.logger.debug("Done")
+        self._logger.debug("Done")
         return [photo["id"] for photo in photos["photos"]["photo"]]
 
     def iter_photos(self) -> Iterable:

@@ -1,9 +1,15 @@
 from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional
+from concurrent.futures import Future
 
 MAX_TAKEN_DATE = 1660730319
 PER_PAGE_DEFAULT = 2
+
+
+def check_future_exception(future: Future):
+    if future.exception():
+        raise future.exception()
 
 
 @dataclass

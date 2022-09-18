@@ -12,7 +12,7 @@ DOWNLOAD_PATH = os.getenv("LOCAL_DOWNLOAD_PATH", "data")
 
 app = Flask(__name__)
 app.logger.setLevel(os.getenv("LOG_LEVEL", "INFO").upper())
-thread_executor = ThreadPoolExecutor(max_workers=4)
+thread_executor = ThreadPoolExecutor(max_workers=1)
 file_store = LocalFileStore(upload_prefix=DOWNLOAD_PATH, logger=app.logger)
 image_uploader = GCSFileUploader(
     logger=app.logger,
@@ -34,9 +34,9 @@ controller = LabelImagesController(
     download_path=DOWNLOAD_PATH,
     image_downloader=flickr_downloader,
     dataset_interface=labeler,
-    executor=thread_executor,
     download_buffer_size=5,
 )
+controller.spawn_buffering_process(executor=thread_executor)
 
 
 @app.route('/', methods=("GET", "POST"))

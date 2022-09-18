@@ -1,12 +1,13 @@
 from concurrent.futures import Future, ThreadPoolExecutor
 import logging
-from typing import Iterable, Optional, Tuple
-from flask import current_app, copy_current_request_context
+import time
+from typing import Iterable, Tuple
+from flask import current_app
 import os
 import itertools
 
 from db.client import DBClient
-from flickr_app.util import MAX_TAKEN_DATE, ImageSearch, InvalidSearchException
+from flickr_app.util import MAX_TAKEN_DATE, ImageSearch, InvalidSearchException, check_future_exception
 
 from .flickr import (
     ImageDownloader,
@@ -135,12 +136,10 @@ class LabelImagesController:
         download_path: str,
         image_downloader: ImageDownloader,
         dataset_interface: DatabaseInterface,
-        executor: ThreadPoolExecutor,
         per_page: int = PER_PAGE_DEFAULT,
         download_buffer_size: int = BUFFER_SIZE_DEFAULT,
     ):
         self.user_id = None
-        self._executor = executor
         self._base_download_path = download_path
         self._session_download_path = None
         self.session_images_path = None
@@ -157,11 +156,18 @@ class LabelImagesController:
         self._session_up = False
         self.loading = False
         self._buffering_process: Future = None
+        self._buffering = False
         self._current_search: ImageSearch = None
+        self._buffer_locked = True
+
+    def spawn_buffering_process(self, executor: ThreadPoolExecutor):
+        self._buffering_process = executor.submit(self._buffer_continuously)
+        #self._buffering_process.add_done_callback(check_future_exception)
 
     def end_session(self):
         current_app.logger.debug("LabelImagesController - session ended")
         if self._session_up:
+            self._buffer_locked
             self._image_buffer = []
             self._image_downloader.end_session()
             self._session_up = False
@@ -177,12 +183,9 @@ class LabelImagesController:
         self._current_search = self._dataset_interface.new_search(search_text)
         self._image_downloader.new_session(download_path=self._session_download_path, search=self._current_search)
         self._images_iter = self._image_downloader.iter_photos()
-        self.do_buffer()
+        self._buffer_locked = False
         self._session_up = True
         self.next_image()
-
-    def _clear_buffering_process(self):
-        self._buffering_process = None
 
     def _download_image_if_not_labeled(self, image_metdata: Tuple[int, int, int]) -> Tuple[int, str, str, int, int]:
         flickr_id, page_idx, image_idx = image_metdata
@@ -199,29 +202,39 @@ class LabelImagesController:
     def do_buffer(self):
         num_new_images = self._download_buffer_size - len(self._image_buffer)
         current_app.logger.debug(f"Buffering {num_new_images} images...")
-        for flickr_id, local_path, remote_path, page_idx, image_idx in self._download_images_concurrent(self._executor, num_new_images):
+        for flickr_id, local_path, remote_path, page_idx, image_idx in self._download_images(num_new_images):
             if local_path:
                 self._image_buffer += [(flickr_id, local_path, remote_path, page_idx, image_idx)]
                 current_app.logger.debug(f"Image {flickr_id} added to buffer")
             else:
                 current_app.logger.debug(f"Image {flickr_id} skipped because it was already labeled")
 
-        # TODO: async not working
-        # if self._buffering_process is None:
-        #     self._buffering_process = self._executor.submit(self._buffer)
-        #     self._buffering_process.add_done_callback(lambda _: self._clear_buffering_process())
+    def _buffer_continuously(self):
+        while True:
+            if (
+                not self._buffer_locked and
+                self._images_iter is not None and
+                self._download_buffer_size > len(self._image_buffer)
+            ):
+                # TODO: updates not propagating to api call thread somehow (both while True's active)
+                self._image_buffer += [self._download_image_if_not_labeled(next(self._images_iter))]
+            else:
+                time.sleep(0.1)
 
     def next_image(self):
         current_app.logger.debug("Attempting to load next image...")
         if not self.loading:
             self.loading = True
+            i = 0
             while len(self._image_buffer) == 0:
-                self.do_buffer()
+                if i % 10 == 0:
+                    current_app.logger.debug(f"Waiting on buffer...{i // 10}")
+                i += 1
+                time.sleep(0.1)
             self.curr_image_id, self.curr_image_path, self._curr_image_remote_path, page_idx, image_idx = self._image_buffer.pop(0)
             self._current_search.last_page_idx = page_idx
             self._current_search.last_image_idx = image_idx
             current_app.logger.debug(f"Pulled image {self.curr_image_id} from buffer")
-            self.do_buffer()
             self.loading = False
         else:
             current_app.logger.debug("Image already loading. Skipping...")
