@@ -37,7 +37,7 @@ spec:
               - all
           privileged: false
           readOnlyRootFilesystem: true
-        image: gcr.io/deep-learning-project-295521/flickr-app:latest
+        image: [REPLACE ME]
         ports:
         - containerPort: 8080
         envFrom:
@@ -48,14 +48,16 @@ spec:
           value: DEBUG
         - name: GOOGLE_APPLICATION_CREDENTIALS
           value: /opt/gcp-credentials.json
+        - name: FLICKR_APP_DB_URL
+          value: [REPLACE ME]
         - name: FLICKR_CACHE
           value: /tmp/.flickr
         - name: LOCAL_DOWNLOAD_PATH
           value: /data
         - name: GCP_PROJECT
-          value: deep-learning-project
+          value: [REPLACE ME]
         - name: GCP_BUCKET
-          value: animation-assist
+          value: flickr-images
         - name: DISABLE_STATS
           value: "1"
         - name: DISABLE_TRACING
@@ -102,3 +104,14 @@ spec:
       name: flickr-app
       port:
         number: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-all-egress
+spec:
+  podSelector: {}
+  egress:
+  - {}
+  policyTypes:
+  - Egress
